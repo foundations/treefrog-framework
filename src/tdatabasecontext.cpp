@@ -52,14 +52,22 @@ QSqlDatabase &TDatabaseContext::getSqlDatabase(int id)
 
     TSqlTransaction &tx = sqlDatabases[id];
     QSqlDatabase &db = tx.database();
-    if (! tx.isValid()) {
-        db = TSqlDatabasePool::instance()->database(id);
-        beginTransaction(db, id);
-    } else {
-        if (! tx.isActive()) {
-            tx.rebegin();
-        }
+
+    if (db.isValid() && tx.isActive()) {
+        return db;
     }
+
+    int n = 0;
+    do {
+        if (! db.isValid()) {
+            db = TSqlDatabasePool::instance()->database(id);
+        }
+
+        if (tx.begin()) {
+            break;
+        }
+        TSqlDatabasePool::instance()->pool(db, true);
+    } while (++n < 2);  // try two times
 
     idleElapsed = (uint)std::time(nullptr);
     return db;
@@ -125,53 +133,59 @@ void TDatabaseContext::setTransactionEnabled(bool enable, int id)
     return sqlDatabases[id].setEnabled(enable);
 }
 
-// Obsoleted function
-bool TDatabaseContext::beginTransaction(QSqlDatabase &database)
-{
-    int id = TSqlDatabasePool::getDatabaseId(database);
-    return beginTransaction(database, id);
-}
-
-
-bool TDatabaseContext::beginTransaction(QSqlDatabase &database, int id)
-{
-    return sqlDatabases[id].begin(database);
-}
-
 
 void TDatabaseContext::commitTransactions()
 {
     for (QMap<int, TSqlTransaction>::iterator it = sqlDatabases.begin(); it != sqlDatabases.end(); ++it) {
-        it.value().commit();
+        TSqlTransaction &tx = it.value();
+        if (! tx.commit()) {
+            TSqlDatabasePool::instance()->pool(tx.database(), true);
+        }
     }
 }
 
 
 bool TDatabaseContext::commitTransaction(int id)
 {
+    bool res = false;
+
     if (id < 0 || id >= sqlDatabases.count()) {
         tError("Failed to commit transaction. Invalid database ID: %d", id);
-        return false;
+        return res;
     }
-    return sqlDatabases[id].commit();
+
+    res = sqlDatabases[id].commit();
+    if (! res) {
+        TSqlDatabasePool::instance()->pool(sqlDatabases[id].database(), true);
+    }
+    return res;
 }
 
 
 void TDatabaseContext::rollbackTransactions()
 {
     for (QMap<int, TSqlTransaction>::iterator it = sqlDatabases.begin(); it != sqlDatabases.end(); ++it) {
-        it.value().rollback();
+        TSqlTransaction &tx = it.value();
+        if (! tx.rollback()) {
+            TSqlDatabasePool::instance()->pool(tx.database(), true);
+        }
     }
 }
 
 
 bool TDatabaseContext::rollbackTransaction(int id)
 {
+    bool res = false;
+
     if (id < 0 || id >= sqlDatabases.count()) {
         tError("Failed to rollback transaction. Invalid database ID: %d", id);
-        return false;
+        return res;
     }
-    return sqlDatabases[id].rollback();
+    res = sqlDatabases[id].rollback();
+    if (! res) {
+        TSqlDatabasePool::instance()->pool(sqlDatabases[id].database(), true);
+    }
+    return res;
 }
 
 

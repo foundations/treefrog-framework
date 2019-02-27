@@ -144,6 +144,18 @@ QString TSqlQuery::formatValue(const QVariant &val, const QSqlDatabase &database
 }
 
 /*!
+  Prepares the SQL query \a query for execution.
+*/
+TSqlQuery &TSqlQuery::prepare(const QString &query)
+{
+    bool ret = QSqlQuery::prepare(query);
+    if (!ret) {
+        Tf::writeQueryLog(QLatin1String("(Query prepare) ") + query, ret, lastError());
+    }
+    return *this;
+}
+
+/*!
   Executes the SQL in \a query. Returns true and sets the query state to
   active if the query was successful; otherwise returns false.
 */
@@ -206,4 +218,13 @@ bool TSqlQuery::next()
 QVariant TSqlQuery::value(int index) const
 {
     return QSqlQuery::value(index);
+}
+
+/*!
+  Returns the value of the field called name in the current record.
+  If field name does not exist an invalid variant is returned.
+ */
+QVariant TSqlQuery::value(const QString &name) const
+{
+    return QSqlQuery::value(name);
 }
